@@ -8,11 +8,7 @@ const Button = ({ children, onClick, variant = "primary", className = "", ...pro
     };
 
     return (
-        <button
-            onClick={onClick}
-            className={`${baseStyles} ${variants[variant]} ${className}`}
-            {...props}
-        >
+        <button onClick={onClick} className={`${baseStyles} ${variants[variant]} ${className}`} {...props}>
             {children}
         </button>
     );
