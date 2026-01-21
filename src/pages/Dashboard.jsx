@@ -4,7 +4,7 @@ import {
     MessageSquare, Search, Phone, Video, Settings, LogOut,
     MoreVertical, Paperclip, Send, User, ChevronLeft, Menu,
     Check, CheckCheck, Clock, ShieldCheck, X, Plus, Smile, Camera,
-    Moon, Sun, Trash2, Home
+    Moon, Sun, Trash2, Home, Mic, Square
 } from 'lucide-react';
 import MediaCapture from '../components/MediaCapture';
 import EmojiPicker from 'emoji-picker-react';
@@ -43,6 +43,96 @@ const Dashboard = () => {
     const fileInputRef = useRef(null);
     const [isUploading, setIsUploading] = useState(false);
 
+    // Audio Recording
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordingDuration, setRecordingDuration] = useState(0);
+    const mediaRecorderRef = useRef(null);
+    const audioChunksRef = useRef([]);
+    const timerRef = useRef(null);
+    const isCancelledRef = useRef(false);
+
+    const handleStartRecording = async () => {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorderRef.current = new MediaRecorder(stream);
+            audioChunksRef.current = [];
+            isCancelledRef.current = false;
+
+            mediaRecorderRef.current.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    audioChunksRef.current.push(event.data);
+                }
+            };
+
+            mediaRecorderRef.current.onstop = async () => {
+                // Stop all tracks
+                stream.getTracks().forEach(track => track.stop());
+
+                if (isCancelledRef.current) {
+                    console.log('Recording cancelled');
+                    return;
+                }
+
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                const audioFile = new File([audioBlob], `voice_message_${Date.now()}.webm`, { type: 'audio/webm' });
+
+                // Upload and send
+                await handleAudioUpload(audioFile);
+            };
+
+            mediaRecorderRef.current.start();
+            setIsRecording(true);
+            setRecordingDuration(0);
+
+            timerRef.current = setInterval(() => {
+                setRecordingDuration(prev => prev + 1);
+            }, 1000);
+
+        } catch (err) {
+            console.error('Error accessing microphone:', err);
+            alert('Could not access microphone. Please ensure permissions are granted.');
+        }
+    };
+
+    const handleStopRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            clearInterval(timerRef.current);
+        }
+    };
+
+    const handleCancelRecording = () => {
+        if (mediaRecorderRef.current && isRecording) {
+            isCancelledRef.current = true;
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+            clearInterval(timerRef.current);
+        }
+    };
+
+    const handleAudioUpload = async (file) => {
+        setIsUploading(true);
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const { data } = await chatService.uploadFile(formData);
+            await chatService.sendMessage(selectedChat.id, data.url, 'audio');
+        } catch (err) {
+            console.error('Audio upload failed', err);
+            alert('Failed to send voice message');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const formatDuration = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
     const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -53,7 +143,7 @@ const Dashboard = () => {
 
         try {
             const { data } = await chatService.uploadFile(formData);
-            const type = file.type.startsWith('image/') ? 'image' : 'file';
+            const type = file.type.startsWith('image/') ? 'image' : (file.type.startsWith('video/') ? 'video' : 'file');
 
             // Send message with file URL
             const { data: message } = await chatService.sendMessage(selectedChat.id, data.url, type);
@@ -784,7 +874,7 @@ const Dashboard = () => {
                                         )}
 
                                         <div className={`flex w-full mb-2 ${isMe ? 'justify-end' : 'justify-start items-end'} animate-slide-up relative group`}>
-                                            {/* Avatar for received messages - Only if start of sequence or standalone */}
+                                            {/* Avatar */}
                                             {!isMe && (
                                                 <div className="flex-shrink-0 mr-3 mb-6 w-8">
                                                     {showAvatar ? (
@@ -801,8 +891,7 @@ const Dashboard = () => {
 
                                             <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[85%] sm:max-w-[60%]`}>
                                                 <div className="relative group">
-
-                                                    {/* Delete Button (Hover) */}
+                                                    {/* Delete Button */}
                                                     {isMe && (
                                                         <button
                                                             onClick={() => handleDeleteMessage(msg.id)}
@@ -820,30 +909,73 @@ const Dashboard = () => {
                                                             : 'bg-[#F3E8FF] dark:bg-purple-900/40 text-gray-900 dark:text-gray-100 rounded-tl-none'
                                                         }
                                                     `}>
-                                                        {msg.type === 'image' ? (
-                                                            <img
-                                                                src={`http://localhost:5000${msg.content}`}
-                                                                alt="sc"
-                                                                className="max-w-full rounded-lg cursor-pointer hover:opacity-90 transition-opacity mb-1"
-                                                                onClick={() => window.open(`http://localhost:5000${msg.content}`, '_blank')}
-                                                            />
-                                                        ) : msg.type === 'file' ? (
-                                                            <a
-                                                                href={`http://localhost:5000${msg.content}`}
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                className={`flex items-center gap-2 p-2 rounded-lg transition-colors bg-black/5 hover:bg-black/10`}
-                                                            >
-                                                                <Paperclip size={20} />
-                                                                <span className="underline truncate max-w-[150px]">Attachment</span>
-                                                            </a>
-                                                        ) : (
-                                                            <p>{msg.content}</p>
-                                                        )}
+                                                        {(() => {
+                                                            // For static files, use server root without /api
+                                                            const serverBase = 'http://localhost:5000';
+
+                                                            // For file-based messages, use file_url if available, otherwise fall back to content
+                                                            const rawUrl = msg.file_url || msg.content;
+                                                            const fileUrl = rawUrl?.startsWith('http') ? rawUrl : `${serverBase}${rawUrl}`;
+
+                                                            const isImage = (url) => /\.(jpg|jpeg|png|gif|webp|bmp|svg|tiff|heic)$/i.test(url);
+                                                            const isVideo = (url) => /\.(mp4|webm|ogg|mov|avi|mkv)$/i.test(url);
+                                                            const isAudio = (url) => /\.(mp3|wav|ogg|webm|m4a)$/i.test(url);
+
+                                                            if (msg.type === 'image' || (msg.type === 'text' && isImage(rawUrl))) {
+                                                                return (
+                                                                    <div className="relative group">
+                                                                        <img
+                                                                            src={fileUrl}
+                                                                            alt="attachment"
+                                                                            className="max-w-full sm:max-w-sm rounded-lg cursor-pointer hover:opacity-95 transition-opacity mb-1 object-cover shadow-sm"
+                                                                            style={{ maxHeight: '300px' }}
+                                                                            onClick={() => window.open(fileUrl, '_blank')}
+                                                                            onError={(e) => {
+                                                                                e.target.style.display = 'none';
+                                                                                e.target.nextSibling.style.display = 'flex';
+                                                                            }}
+                                                                        />
+                                                                        <div className="hidden items-center gap-2 p-3 bg-red-50 text-red-500 rounded-lg border border-red-100">
+                                                                            <span className="text-sm font-medium">Failed to load image</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            } else if (msg.type === 'video' || (msg.type === 'text' && isVideo(rawUrl))) {
+                                                                return (
+                                                                    <video
+                                                                        src={fileUrl}
+                                                                        controls
+                                                                        className="max-w-full rounded-lg mb-1"
+                                                                    />
+                                                                );
+                                                            } else if (msg.type === 'audio' || (msg.type === 'text' && isAudio(rawUrl))) {
+                                                                return (
+                                                                    <audio
+                                                                        src={fileUrl}
+                                                                        controls
+                                                                        className="max-w-full mb-1"
+                                                                    />
+                                                                );
+                                                            } else if (msg.type === 'file') {
+                                                                return (
+                                                                    <a
+                                                                        href={fileUrl}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className={`flex items-center gap-2 p-2 rounded-lg transition-colors bg-black/5 hover:bg-black/10`}
+                                                                    >
+                                                                        <Paperclip size={20} />
+                                                                        <span className="underline truncate max-w-[150px]">Attachment</span>
+                                                                    </a>
+                                                                );
+                                                            } else {
+                                                                return <p>{msg.content}</p>;
+                                                            }
+                                                        })()}
                                                     </div>
                                                 </div>
 
-                                                {/* Meta Info Below Bubble */}
+                                                {/* Meta Info */}
                                                 <div className={`flex items-center gap-2 mt-1 px-1 ${isMe ? 'justify-end' : 'justify-start'}`}>
                                                     {!isMe && showAvatar && (
                                                         <span className="text-xs font-bold text-gray-900 dark:text-white">
@@ -855,7 +987,6 @@ const Dashboard = () => {
                                                     </span>
                                                     {isMe && (
                                                         <span className="flex items-center">
-                                                            {/* Read Indicator Dot */}
                                                             {msg.is_read || msg.status === 'read' ? (
                                                                 <div className="w-2 h-2 rounded-full bg-green-500 shadow-sm ml-1"></div>
                                                             ) : (
@@ -874,7 +1005,6 @@ const Dashboard = () => {
                             {isTyping && (
                                 <div className="flex w-full mb-2 justify-start items-end animate-slide-up relative group">
                                     <div className="flex-shrink-0 mr-3 mb-6 w-8">
-                                        {/* Placeholder for avatar if needed, or just empty space */}
                                         <div className="w-8" />
                                     </div>
                                     <div className="flex flex-col items-start max-w-[75%] sm:max-w-[60%]">
@@ -893,7 +1023,6 @@ const Dashboard = () => {
                         </div>
 
                         {/* Input Area */}
-                        {/* Input Area */}
                         <div className="w-full flex-shrink-0 p-3 sm:p-6 bg-transparent relative z-20">
                             <form
                                 onSubmit={handleSendMessage}
@@ -903,7 +1032,7 @@ const Dashboard = () => {
                                     type="button"
                                     className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors ml-1"
                                     onClick={() => fileInputRef.current?.click()}
-                                    disabled={isUploading}
+                                    disabled={isUploading || isRecording}
                                 >
                                     <Plus size={20} className="sm:w-6 sm:h-6" />
                                 </button>
@@ -912,7 +1041,7 @@ const Dashboard = () => {
                                     type="button"
                                     className="w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition-colors"
                                     onClick={() => setShowCamera(true)}
-                                    disabled={isUploading}
+                                    disabled={isUploading || isRecording}
                                 >
                                     <Camera size={20} className="sm:w-6 sm:h-6" />
                                 </button>
@@ -924,36 +1053,73 @@ const Dashboard = () => {
                                     onChange={handleFileUpload}
                                 />
 
-                                <input
-                                    type="text"
-                                    placeholder={`Message...`}
-                                    className="flex-1 bg-transparent text-text-primary px-2 py-3 focus:outline-none placeholder:text-gray-400 font-medium min-w-0"
-                                    value={newMessage}
-                                    onChange={(e) => {
-                                        setNewMessage(e.target.value);
-                                        // typing logic...
-                                        if (socket && selectedChat) {
-                                            socket.emit('typing:start', { conversationId: selectedChat.id });
-                                            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-                                            typingTimeoutRef.current = setTimeout(() => {
-                                                socket.emit('typing:stop', { conversationId: selectedChat.id });
-                                            }, 2000);
-                                        }
-                                    }}
-                                />
+                                {isRecording ? (
+                                    <div className="flex-1 flex items-center justify-between bg-red-50 px-4 py-3 rounded-full animate-pulse">
+                                        <div className="flex items-center gap-2 text-red-500 font-medium">
+                                            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                                            <span>Recording {formatDuration(recordingDuration)}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleCancelRecording}
+                                                className="p-1.5 text-red-500 hover:bg-red-100 rounded-full transition-colors"
+                                                title="Cancel"
+                                            >
+                                                <X size={20} />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleStopRecording}
+                                                className="p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                                                title="Send"
+                                            >
+                                                <Square size={16} fill="currentColor" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <input
+                                            type="text"
+                                            placeholder={`Message...`}
+                                            className="flex-1 bg-transparent text-text-primary px-2 py-3 focus:outline-none placeholder:text-gray-400 font-medium min-w-0"
+                                            value={newMessage}
+                                            onChange={(e) => {
+                                                setNewMessage(e.target.value);
+                                                if (socket && selectedChat) {
+                                                    socket.emit('typing:start', { conversationId: selectedChat.id });
+                                                    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+                                                    typingTimeoutRef.current = setTimeout(() => {
+                                                        socket.emit('typing:stop', { conversationId: selectedChat.id });
+                                                    }, 2000);
+                                                }
+                                            }}
+                                        />
 
-                                <button type="button"
-                                    className={`p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors hidden sm:block ${showEmojiPicker ? 'text-yellow-500' : ''}`}
-                                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                                >
-                                    <Smile size={24} />
-                                </button>
+                                        <button type="button"
+                                            className={`p-2 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors hidden sm:block ${showEmojiPicker ? 'text-yellow-500' : ''}`}
+                                            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                                        >
+                                            <Smile size={24} />
+                                        </button>
 
-                                <button type="submit"
-                                    className="bg-black hover:bg-gray-800 text-white px-4 sm:px-6 py-2.5 rounded-full font-semibold text-sm transition-all shadow-md active:scale-95 flex-shrink-0"
-                                >
-                                    Send
-                                </button>
+                                        {newMessage.trim() ? (
+                                            <button type="submit"
+                                                className="bg-black hover:bg-gray-800 text-white px-4 sm:px-6 py-2.5 rounded-full font-semibold text-sm transition-all shadow-md active:scale-95 flex-shrink-0"
+                                            >
+                                                Send
+                                            </button>
+                                        ) : (
+                                            <button type="button"
+                                                onClick={handleStartRecording}
+                                                className="bg-black hover:bg-gray-800 text-white p-3 rounded-full transition-all shadow-md active:scale-95 flex-shrink-0"
+                                            >
+                                                <Mic size={20} />
+                                            </button>
+                                        )}
+                                    </>
+                                )}
                             </form>
 
                             {showEmojiPicker && (
@@ -983,7 +1149,6 @@ const Dashboard = () => {
                             <Menu size={24} />
                         </button>
 
-                        {/* Profile Button - Empty State */}
                         {/* Profile Button - Empty State */}
                         <button
                             onClick={() => navigate('/profile')}
@@ -1050,7 +1215,7 @@ const Dashboard = () => {
                     />
                 )}
             </div>
-        </div>
+        </div >
     );
 };
 

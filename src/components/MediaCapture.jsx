@@ -13,7 +13,7 @@ const MediaCapture = ({ onClose, onSend }) => {
     useEffect(() => {
         startCamera();
         return () => stopCamera();
-    }, []);
+    }, [mode]);
 
     const startCamera = async () => {
         try {
