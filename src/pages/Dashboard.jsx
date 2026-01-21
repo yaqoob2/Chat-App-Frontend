@@ -605,7 +605,7 @@ const Dashboard = () => {
                                     className="p-1.5 text-text-primary hover:text-primary-500 hover:bg-bg-paper rounded-md transition-all"
                                     title="Toggle Theme"
                                 >
-                                    {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+                                    {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
                                 </button>
                                 {/* Mobile Close Button */}
                                 <button
