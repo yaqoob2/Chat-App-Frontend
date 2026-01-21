@@ -122,7 +122,19 @@ const Dashboard = () => {
 
     // Connect to Socket.IO
     useEffect(() => {
-        const newSocket = io('http://localhost:5000', {
+        let socketUrl = 'http://localhost:5000';
+        if (import.meta.env.VITE_SOCKET_URL) {
+            socketUrl = import.meta.env.VITE_SOCKET_URL;
+        } else if (import.meta.env.VITE_API_BASE_URL) {
+            try {
+                const url = new URL(import.meta.env.VITE_API_BASE_URL);
+                socketUrl = url.origin;
+            } catch (e) {
+                console.warn('Invalid VITE_API_BASE_URL, falling back to localhost', e);
+            }
+        }
+
+        const newSocket = io(socketUrl, {
             auth: { token: localStorage.getItem('token') }
         });
 
@@ -237,29 +249,9 @@ const Dashboard = () => {
             }, 500);
         });
 
-        newSocket.on('new_message', (message) => {
-            // Ensure types match (int vs string)
-            if (selectedChatRef.current && message.conversation_id == selectedChatRef.current.id) {
-                setMessages((prev) => [...prev, message]);
 
-                // Emit delivered receipt immediately if chat is open
-                newSocket.emit('msg:delivered', {
-                    messageId: message.id,
-                    conversationId: message.conversation_id,
-                    senderId: message.sender_id
-                });
 
-                if (document.hasFocus()) {
-                    newSocket.emit('msg:seen', {
-                        conversationId: message.conversation_id,
-                        lastSeenMessageId: message.id
-                    });
-                }
-            }
-            fetchConversations();
-        });
 
-        // Listen for conversation removal (Delete Chat)
         newSocket.on('conversation_removed', ({ conversationId }) => {
             setConversations(prev => prev.filter(c => c.id !== parseInt(conversationId)));
             if (selectedChatRef.current?.id === parseInt(conversationId)) {
@@ -267,15 +259,9 @@ const Dashboard = () => {
             }
         });
 
-        // Listen for conversation clearing (Clear Chat)
+
         newSocket.on('conversation_cleared', () => {
-            // We can't easily know WHICH conversation from just this event if payload is empty, 
-            // but assuming we are in it, we clear messages.
-            // Actually backend emits to ROOM. So if we are in room, we get it.
-            // We should check selectedChat.
-            // But wait, the socket event doesn't carry ID? 
-            // Controller: io.to(`conversation:${conversationId}`).emit('conversation_cleared');
-            // So any client in that room gets it.
+
             setMessages([]);
         });
 
@@ -407,6 +393,11 @@ const Dashboard = () => {
         setMessages(prev => [...prev, tempMessage]);
         setNewMessage('');
 
+        socket.emit('typing:stop', { conversationId: selectedChat.id });
+        if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+        }
+
         try {
             socket.emit('msg:send', {
                 conversationId: selectedChat.id,
@@ -416,7 +407,7 @@ const Dashboard = () => {
             console.log('Emitted msg:send');
         } catch (err) {
             console.error(err);
-            // Revert on error (optional, simplified here)
+
         }
     };
 
